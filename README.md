@@ -71,7 +71,21 @@ export MINDOS_TOOL_MODULES='["/absolute/path/anki-cli/node/extension.mjs"]'
 
 在这两个环境变量下启动 Node 宿主（httpd 或 CLI）。扩展注册 `anki.prepare@1`、`anki.plan@1`、`anki.package@1`；浏览器和 Tauri 未安装此 Node 扩展时不具备 Rust 打包能力。
 
-使用 [anki-generate.flow](flows/anki-generate.flow)，在运行表单中绑定 `text`，按需绑定 `image` / `speech`，开启“生成配图”或“生成单词和例句语音”，并填写实际模型支持的音色。图片/语音默认关闭。媒体连接必须配置兼容的媒体端点、能力声明和 API Key；本工具不增加豆包原生 TTS 或 macOS `say` 驱动。
+三个定义共同使用：
+
+| 定义 | 用途 |
+| --- | --- |
+| [anki-generate.flow](flows/anki-generate.flow) | 文本或 JSON 入口，保留原 ID |
+| [anki-from-image.flow](flows/anki-from-image.flow) | 教材图片 → 视觉转录 → 用户校对 → 公共制卡 |
+| [anki-build.flow](flows/anki-build.flow) | 公共制卡，接收规范化的 WordData 数组，补全、媒体与打包 |
+
+在 MindOS 中恢复/导入三个定义，并先发布公共流程；默认安装和系统恢复会准备公共流程的可调用版本。已安装旧版 `anki-generate` 不会被自动覆盖，需删除后显式恢复或导入更新。在入口表单绑定 `text`，按需绑定 `image` / `speech`；配图和语音默认关闭。图片入口还需绑定支持图片输入的 `vision` 聊天连接。最多 4 张 PNG/JPEG/WebP、合计 6 MiB；上传的原图作为持久输入保留，恢复时无需重新选择。识别后始终暂停供用户修改 JSON，校对提交前不会开始补全或打包。
+
+两个入口通过 `builtin.flow@2` 将参数、连接槽传入公共流程，入口限制整次运行的并发和节点数。公共流程使用 `builtin.spawn` 的 `scope: local` 隔离动态媒体/打包节点；YAML 契约和 Rust 打包无需区分单词来自文本还是图片。
+
+CLI 从入口所在目录读取同名子 `.flow`，请将三个文件保存在一起。图片参数为 `images: ["data:image/png;base64,..."]`，无需单独使用上传服务；CLI 等待校对时返回 3，通过 `respond <run-id> <request-id> --value '{"cards":[...]}'` 提交，再 `resume <run-id>`。运行快照已保存展开的公共流程，恢复不重新读取最新定义。
+
+媒体连接必须配置兼容的媒体端点、能力声明和 API Key；填写所选语音模型支持的音色。本工具不增加豆包原生 TTS 或 macOS `say` 驱动。
 
 流程为：输入 → Rust 预校验 → 模型补全 → Rust 确定性合并与规划 → 每卡片媒体节点 → Rust 清单与打包。预校验在模型请求前检查工具环境、身份和最多 20 张的批量限制。媒体作为持久 Task 资产返回，仅允许同一个 Flow 内的打包工具读取；输出采用工作区的原有写权限。每次打包保存到 `输出目录/<操作摘要>/`，保留之前的产物。打包回执核对包、清单和媒体摘要；缺少或损坏回执保留不确定状态，不自动重放写操作。工作区导出目前限制单包 128 MiB；独立 Rust CLI 没有该内存导出限制。
 
@@ -82,4 +96,4 @@ cargo build --manifest-path tools/anki-cli/Cargo.toml --locked
 node apps/cli/scripts/verify-anki-flow.mjs
 ```
 
-验收实际生成 `.apkg`，检查单词内容、媒体和恢复时不重复请求。未调用真实付费服务，也未自动打开 Anki 桌面应用做导入验收。
+验收两个入口实际生成 `.apkg`，检查图片识别后的暂停、跨进程校对/恢复、校正内容与媒体，以及恢复时不重复请求。未调用真实付费服务，也未自动打开 Anki 桌面应用做导入验收。
