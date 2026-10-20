@@ -79,11 +79,11 @@ export MINDOS_TOOL_MODULES='["/absolute/path/anki-cli/node/extension.mjs"]'
 | [anki-from-image.flow](flows/anki-from-image.flow) | 教材图片 → 视觉转录 → 用户校对 → 公共制卡 |
 | [anki-build.flow](flows/anki-build.flow) | 公共制卡，接收规范化的 WordData 数组，补全、媒体与打包 |
 
-在 MindOS 中恢复/导入三个定义，并先发布公共流程；默认安装和系统恢复会准备公共流程的可调用版本。已安装旧版 `anki-generate` 不会被自动覆盖，需删除后显式恢复或导入更新。在入口表单绑定 `text`，按需绑定 `image` / `speech`；配图和语音默认关闭。图片入口还需绑定支持图片输入的 `vision` 聊天连接。最多 4 张 PNG/JPEG/WebP、合计 6 MiB；上传的原图作为持久输入保留，恢复时无需重新选择。识别后始终暂停供用户修改 JSON，校对提交前不会开始补全或打包。
+在 MindOS 中恢复/导入三个定义，并先发布公共流程；默认安装和应用恢复策略会显式准备公共流程的可调用版本，核心恢复草稿命令不自动发布。已安装旧版 `anki-generate` 不会被自动覆盖，需删除后显式恢复或导入更新。在入口表单绑定 `text`，按需绑定 `image` / `speech`；配图和语音默认关闭。图片入口还需绑定支持图片输入的 `vision` 聊天连接。最多 4 张 PNG/JPEG/WebP、合计 6 MiB；上传的原图作为持久输入保留，恢复时无需重新选择。识别后始终暂停供用户修改 JSON，校对提交前不会开始补全或打包。
 
 两个入口通过 `builtin.flow@2` 将参数、连接槽传入公共流程，入口限制整次运行的并发和节点数。公共流程使用 `builtin.spawn` 的 `scope: local` 隔离动态媒体/打包节点；YAML 契约和 Rust 打包无需区分单词来自文本还是图片。
 
-CLI 从入口所在目录读取同名子 `.flow`，请将三个文件保存在一起。图片参数为 `images: ["data:image/png;base64,..."]`，无需单独使用上传服务；CLI 等待校对时返回 3，通过 `respond <run-id> <request-id> --value '{"cards":[...]}'` 提交，再 `resume <run-id>`。运行快照已保存展开的公共流程，恢复不重新读取最新定义。
+CLI 从入口所在目录读取同名子 `.flow`，请将三个文件保存在一起。图片参数为 `images: [{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]`（标准消息内容块），无需单独使用上传服务；CLI 等待校对时返回 3，通过 `respond <run-id> <request-id> --value '{"cards":[...]}'` 提交，再 `resume <run-id>`。运行快照已保存展开的公共流程，恢复不重新读取最新定义。
 
 媒体连接必须配置兼容的媒体端点、能力声明和 API Key；填写所选语音模型支持的音色。本工具不增加豆包原生 TTS 或 macOS `say` 驱动。
 
@@ -97,3 +97,5 @@ node apps/cli/scripts/verify-anki-flow.mjs
 ```
 
 验收两个入口实际生成 `.apkg`，检查图片识别后的暂停、跨进程校对/恢复、校正内容与媒体，以及恢复时不重复请求。未调用真实付费服务，也未自动打开 Anki 桌面应用做导入验收。
+
+图片格式、数量和总字节限制由图片 Flow 的 imageConstraints 声明；本流程选择 PNG/JPEG/WebP、4 张、6 MiB，平台核心不固定这些值。视觉 Agent 使用 messageTemplates 声明标准多模态消息，与已有字面消息快照分开处理。
