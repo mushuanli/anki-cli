@@ -7,7 +7,7 @@
   },
   "id": "anki-from-image",
   "name": "Anki 从图片制卡",
-  "draftVersion": 3,
+  "draftVersion": 4,
   "parameters": [
     {
       "name": "images",
@@ -16,10 +16,10 @@
       "widget": "images",
       "required": true,
       "onMissing": "interact",
-      "description": "按页面顺序选择图片，识别完成后校对单词、单元、音标和中文释义。每批最多 20 张卡片。 图片最多 4 张，合计 6 MiB，格式为 PNG、JPEG 或 WebP。",
+      "description": "按页面顺序选择原图；自动缩放至最长边 2048，转灰度并压缩后识别。可在处理节点预览原图与识别用图，再校对单词、单元、音标和中文释义。每批最多 20 张卡片。",
       "imageConstraints": {
-        "maxItems": 4,
-        "maxBytes": 6291456,
+        "maxItems": 12,
+        "maxBytes": 83886080,
         "mimeTypes": [
           "image/png",
           "image/jpeg",
@@ -145,7 +145,7 @@
       "pluginVersion": "1.0.0",
       "inputs": {},
       "config": {
-        "prompt": "请选择教材或单词图片。",
+        "prompt": "选择教材图片；系统将保留原图，按工作流配方生成用于识别的灰度图。",
         "param": {
           "images": {
             "label": "教材或单词图片",
@@ -153,8 +153,8 @@
             "widget": "images",
             "required": true,
             "imageConstraints": {
-              "maxItems": 4,
-              "maxBytes": 6291456,
+              "maxItems": 12,
+              "maxBytes": 83886080,
               "mimeTypes": [
                 "image/png",
                 "image/jpeg",
@@ -162,6 +162,43 @@
               ]
             }
           }
+        }
+      },
+      "outputPolicy": {
+        "includeInRunOutput": false,
+        "publishToHistory": false
+      }
+    },
+    {
+      "id": "preprocess",
+      "name": "生成识别用图片",
+      "plugin": "builtin.tool",
+      "pluginVersion": "1.0.0",
+      "inputs": {},
+      "capabilities": [
+        "image.process"
+      ],
+      "config": {
+        "toolId": "image.process",
+        "toolVersion": "1",
+        "approval": "none",
+        "args": {
+          "images": "${param.images}",
+          "recipe": {
+            "version": 1,
+            "resize": {
+              "mode": "max-edge",
+              "maxEdge": 2048
+            },
+            "color": "grayscale",
+            "output": {
+              "mimeType": "image/jpeg",
+              "quality": 0.85,
+              "minQuality": 0.65,
+              "maxBytes": 2097152
+            }
+          },
+          "maxTotalBytes": 6291456
         }
       },
       "outputPolicy": {
@@ -248,7 +285,7 @@
           },
           {
             "role": "user",
-            "content": "${param.images}"
+            "content": "${nodes.preprocess.outputs.result.images}"
           }
         ]
       },
@@ -336,8 +373,14 @@
   ],
   "edges": [
     {
-      "id": "collect-recognize",
+      "id": "collect-preprocess",
       "from": "collect",
+      "to": "preprocess",
+      "kind": "control"
+    },
+    {
+      "id": "preprocess-recognize",
+      "from": "preprocess",
       "to": "recognize",
       "kind": "control"
     },
