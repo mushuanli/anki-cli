@@ -18,11 +18,8 @@ pub struct PlanInput {
     pub images: bool,
     #[serde(default)]
     pub audio: bool,
-    #[serde(default = "default_voice")]
+    #[serde(default)]
     pub voice: String,
-}
-fn default_voice() -> String {
-    "alloy".into()
 }
 pub fn prepare(source: &str) -> Result<Value> {
     let cards = crate::legacy::parse_words(source)?;
@@ -65,6 +62,10 @@ pub fn manifest_from_cards(cards: Vec<Value>, name: &str) -> Result<Manifest> {
     Ok(result)
 }
 pub fn build(mut input: PlanInput) -> Result<Value> {
+    ensure!(
+        !input.audio || !input.voice.trim().is_empty(),
+        "Speech voice is required when audio generation is enabled"
+    );
     if let Some(source) = &input.source {
         input.cards = merge_source(source, &input.cards)?;
     }

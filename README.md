@@ -85,7 +85,7 @@ export MINDOS_TOOL_MODULES='["/absolute/path/anki-cli/node/extension.mjs"]'
 
 CLI 从入口所在目录读取同名子 `.flow`，请将三个文件保存在一起。图片参数为 `images: [{"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}]`（标准消息内容块），CLI 会在持久化之前暂存为资产引用；CLI 等待校对时返回 3，通过 `respond <run-id> <request-id> --value '{"cards":[...]}'` 提交，再 `resume <run-id>`。运行快照已保存展开的公共流程，恢复不重新读取最新定义。
 
-媒体连接必须配置兼容的媒体端点、能力声明和 API Key；填写所选语音模型支持的音色。本工具不增加豆包原生 TTS 或 macOS `say` 驱动。
+音频与图片由 Flow 经平台连接生成，模型目录、厂商端点、协议适配和凭据均由 itookit 管理。工具仅传递调用方选择的音色，不设置厂商音色默认值；打包接收已生成媒体，不读取 Provider 或 Connection 配置。
 
 流程为：输入 → Rust 预校验 → 模型补全 → Rust 确定性合并与规划 → 每卡片媒体节点 → Rust 清单与打包。预校验在模型请求前检查工具环境、身份和最多 20 张的批量限制。媒体作为持久 Task 资产返回，仅允许同一个 Flow 内的打包工具读取；输出采用工作区的原有写权限。每次打包保存到 `输出目录/<操作摘要>/`，保留之前的产物。打包回执核对包、清单和媒体摘要；缺少或损坏回执保留不确定状态，不自动重放写操作。工作区导出目前限制单包 128 MiB；独立 Rust CLI 没有该内存导出限制。
 

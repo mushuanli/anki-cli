@@ -62,7 +62,7 @@
       "name": "voice",
       "label": "语音音色",
       "type": "string",
-      "default": "alloy",
+      "default": "",
       "description": "填写所选语音模型支持的音色。"
     }
   ],

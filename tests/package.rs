@@ -102,13 +102,32 @@ fn rejects_version_paths_collisions_and_duplicate_identities() {
 }
 #[test]
 fn plans_media_with_references_instead_of_interpolating_card_data() {
-    let input: plan::PlanInput = serde_json::from_value(json!({"cards":[{"name":"apple","chn":"苹果","example_en":"${param.secret}","image_prompt":"red apple"}],"deck_name":"英语","directory":"output","images":true,"audio":true,"voice":"alloy"})).unwrap();
+    let input: plan::PlanInput = serde_json::from_value(json!({"cards":[{"name":"apple","chn":"苹果","example_en":"${param.secret}","image_prompt":"red apple"}],"deck_name":"英语","directory":"output","images":true,"audio":true,"voice":"fixture-voice"})).unwrap();
     let result = plan::build(input).unwrap();
     let nodes = result["spawn"]["nodes"].as_array().unwrap();
     assert_eq!(nodes.len(), 4);
     let speech: &Value = &nodes[2]["config"]["request"]["input"];
     assert_eq!(speech, "${nodes.plan.outputs.result.cards.0.example_en}");
     assert!(!result["spawn"].to_string().contains("param.secret"));
+}
+#[test]
+fn plans_without_vendor_voice_defaults_and_requires_an_explicit_audio_voice() {
+    let mut input = json!({"cards":[{"name":"apple","chn":"苹果","example_en":"An apple."}],"deck_name":"English","directory":"output"});
+    let result = plan::build(serde_json::from_value(input.clone()).unwrap()).unwrap();
+    assert_eq!(result["voice"], "");
+    assert_eq!(result["spawn"]["nodes"].as_array().unwrap().len(), 1);
+    input["audio"] = json!(true);
+    assert!(plan::build(serde_json::from_value(input.clone()).unwrap())
+        .unwrap_err()
+        .to_string()
+        .contains("Speech voice is required"));
+    input["voice"] = json!("custom-voice");
+    let result = plan::build(serde_json::from_value(input).unwrap()).unwrap();
+    assert_eq!(result["voice"], "custom-voice");
+    assert_eq!(
+        result["spawn"]["nodes"][0]["config"]["connectionId"],
+        "speech"
+    );
 }
 #[test]
 fn escapes_user_markup_in_anki_fields() {

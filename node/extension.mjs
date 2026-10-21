@@ -15,7 +15,7 @@ export function createTools({ buildTool, z }) {
             async call(args, context) { return { data: await invoke(['prepare'], { source: sourceText(args.source) }, context) }; },
         }),
         buildTool({ ...common, name: 'anki.plan', searchHint: 'Plan Anki card media tasks', isReadOnly: () => true,
-            inputSchema: z.object({ cards: z.unknown(), source: z.union([z.string(), z.array(z.record(z.string(), z.unknown()))]).optional(), deck_name: z.string().min(1), directory: z.string().min(1), images: z.boolean(), audio: z.boolean(), voice: z.string().min(1) }),
+            inputSchema: z.object({ cards: z.unknown(), source: z.union([z.string(), z.array(z.record(z.string(), z.unknown()))]).optional(), deck_name: z.string().min(1), directory: z.string().min(1), images: z.boolean(), audio: z.boolean(), voice: z.string().optional() }),
             async description() { return 'Validate word cards and construct deterministic media and packaging nodes. Does not call models or write project files.'; },
             async call(args, context) {
                 const generated = typeof args.cards === 'string' ? JSON.parse(args.cards) : args.cards;
