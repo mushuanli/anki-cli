@@ -24,8 +24,8 @@ pub struct PlanInput {
 pub fn prepare(source: &str) -> Result<Value> {
     let cards = crate::legacy::parse_words(source)?;
     ensure!(
-        cards.len() <= 20,
-        "Each batch supports at most 20 cards; split the input"
+        !cards.is_empty() && cards.len() <= 1000,
+        "Each export supports 1..1000 cards; generation is split into batches of at most 20"
     );
     manifest_from_cards(cards.clone(), "Input validation")?;
     for card in &cards {
@@ -40,7 +40,7 @@ pub fn manifest_from_cards(cards: Vec<Value>, name: &str) -> Result<Manifest> {
             let name = data["name"].as_str().unwrap_or("").trim();
             ensure!(!name.is_empty(), "Word name is required");
             Ok(Card {
-                id: format!("{}.json", safe_name(name)),
+                id: card_id(&data, name)?,
                 kind: "word".into(),
                 data,
             })
@@ -95,8 +95,8 @@ pub fn build(mut input: PlanInput) -> Result<Value> {
 }
 fn validate_generated(input: &PlanInput) -> Result<()> {
     ensure!(
-        input.cards.len() <= 20,
-        "Each batch supports at most 20 cards; split the input"
+        !input.cards.is_empty() && input.cards.len() <= 1000,
+        "Each export supports 1..1000 cards; generation is split into batches of at most 20"
     );
     for card in &input.cards {
         for (field, required) in [
@@ -131,16 +131,42 @@ fn merge_source(source: &str, generated: &[Value]) -> Result<Vec<Value>> {
                     card["name"]
                         .as_str()
                         .is_some_and(|value| value.eq_ignore_ascii_case(name))
+                        && unit_key(card) == unit_key(&old)
                 })
                 .collect();
             ensure!(
                 candidates.len() == 1,
-                "Generated word identity does not match input: {name}"
+                "Generated word identity and unit must match exactly one input card"
             );
             reject_media(&old)?;
             Ok(crate::legacy::merge_word(&old, candidates[0], false))
         })
         .collect()
+}
+fn unit_key(card: &Value) -> String {
+    match &card["unit"] {
+        Value::Null => "1".into(),
+        Value::String(unit) => unit.clone(),
+        other => other.to_string(),
+    }
+}
+pub(crate) fn card_id(card: &Value, name: &str) -> Result<String> {
+    if let Some(id) = card["id"].as_str() {
+        manifest::basename(id)?;
+        return Ok(id.into());
+    }
+    let unit = unit_key(card);
+    ensure!(
+        !unit.trim().is_empty()
+            && (card["unit"].is_null() || card["unit"].is_string() || card["unit"].is_number()),
+        "Card unit must be a nonempty string or number"
+    );
+    let suffix = if unit == "1" {
+        String::new()
+    } else {
+        format!("__unit_{}", safe_name(&unit))
+    };
+    Ok(format!("{}{suffix}.json", safe_name(name)))
 }
 fn reject_media(card: &Value) -> Result<()> {
     for field in ["audio", "audio_example", "image"] {
@@ -180,7 +206,7 @@ impl MediaGraph {
     }
     fn package(&mut self) {
         self.nodes.push(json!({"id":"anki-package","name":"生成 YAML 清单并打包 Anki","plugin":"builtin.tool","pluginVersion":"1.0.0","inputs":{},"capabilities":["anki.package"],
-            "config":{"toolId":"anki.package","toolVersion":"1","approval":"none","args":{"manifest":"${nodes.plan.outputs.result.manifest}","directory":"${nodes.plan.outputs.result.directory}","export_key":"${nodes.plan.outputs.result.export_key}","media":self.media}}}));
+            "config":{"toolId":"anki.package","toolVersion":"1","approval":"none","timeoutMs":180000,"args":{"manifest":"${nodes.plan.outputs.result.manifest}","directory":"${nodes.plan.outputs.result.directory}","export_key":"${nodes.plan.outputs.result.export_key}","media":self.media}}}));
         self.edges.push(json!({"id":"plan-package","from":"$upstream:plan","to":"anki-package","kind":"control"}));
         self.edges.push(
             json!({"id":"spawn-package","from":"$parent","to":"anki-package","kind":"control"}),

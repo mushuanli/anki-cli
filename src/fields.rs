@@ -54,6 +54,7 @@ fn word_fields(result: &mut [String], data: &Value, names: &HashSet<String>) -> 
         (13, "memory_tips"),
         (14, "difficulty"),
         (15, "collocations"),
+        (50, "image_prompt"),
     ] {
         result[index] = text(data, key);
     }

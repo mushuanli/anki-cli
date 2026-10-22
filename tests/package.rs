@@ -28,6 +28,24 @@ fn note(path: &Path) -> (String, String) {
         })
         .unwrap()
 }
+fn guids(path: &Path) -> Vec<String> {
+    let mut archive = zip::ZipArchive::new(File::open(path).unwrap()).unwrap();
+    let mut database = tempfile::NamedTempFile::new().unwrap();
+    std::io::copy(
+        &mut archive.by_name("collection.anki2").unwrap(),
+        database.as_file_mut(),
+    )
+    .unwrap();
+    let connection = rusqlite::Connection::open(database.path()).unwrap();
+    let mut query = connection
+        .prepare("SELECT guid FROM notes ORDER BY guid")
+        .unwrap();
+    query
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
 #[test]
 fn yaml_pack_streams_real_media_and_preserves_note_identity() {
     let temp = tempfile::tempdir().unwrap();
@@ -106,6 +124,7 @@ fn plans_media_with_references_instead_of_interpolating_card_data() {
     let result = plan::build(input).unwrap();
     let nodes = result["spawn"]["nodes"].as_array().unwrap();
     assert_eq!(nodes.len(), 4);
+    assert_eq!(nodes.last().unwrap()["config"]["timeoutMs"], 180000);
     let speech: &Value = &nodes[2]["config"]["request"]["input"];
     assert_eq!(speech, "${nodes.plan.outputs.result.cards.0.example_en}");
     assert!(!result["spawn"].to_string().contains("param.secret"));
@@ -116,6 +135,7 @@ fn plans_without_vendor_voice_defaults_and_requires_an_explicit_audio_voice() {
     let result = plan::build(serde_json::from_value(input.clone()).unwrap()).unwrap();
     assert_eq!(result["voice"], "");
     assert_eq!(result["spawn"]["nodes"].as_array().unwrap().len(), 1);
+    assert_eq!(result["spawn"]["nodes"][0]["config"]["timeoutMs"], 180000);
     input["audio"] = json!(true);
     assert!(plan::build(serde_json::from_value(input.clone()).unwrap())
         .unwrap_err()
@@ -128,6 +148,81 @@ fn plans_without_vendor_voice_defaults_and_requires_an_explicit_audio_voice() {
         result["spawn"]["nodes"][0]["config"]["connectionId"],
         "speech"
     );
+}
+#[test]
+fn plans_one_large_package_and_preserves_same_word_in_different_units() {
+    let mut cards: Vec<Value> = (0..303)
+        .map(|index| json!({"name":format!("word-{index}"),"unit":1,"chn":"测试"}))
+        .collect();
+    cards.extend([
+        json!({"name":"fair","unit":3,"chn":"公平","symbol":"source-symbol","custom":"keep"}),
+        json!({"name":"fair","unit":8,"chn":"展销会"}),
+    ]);
+    let source = serde_json::to_string(&cards).unwrap();
+    assert_eq!(
+        plan::prepare(&source).unwrap()["cards"]
+            .as_array()
+            .unwrap()
+            .len(),
+        305
+    );
+    cards[303]["chn"] = json!("must not overwrite source");
+    cards[303]["symbol"] = json!("generated-symbol");
+    cards.reverse();
+    let result = plan::build(
+        serde_json::from_value(
+            json!({"cards":cards,"source":source,"deck_name":"All units","directory":"output"}),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(result["manifest"]["cards"].as_array().unwrap().len(), 305);
+    assert_eq!(result["cards"][303]["chn"], "公平");
+    assert_eq!(result["cards"][303]["custom"], "keep");
+    assert_eq!(result["cards"][303]["symbol"], "source-symbol");
+    assert_eq!(result["cards"][304]["chn"], "展销会");
+    assert_ne!(
+        result["manifest"]["cards"][303]["id"],
+        result["manifest"]["cards"][304]["id"]
+    );
+    assert_eq!(result["spawn"]["nodes"].as_array().unwrap().len(), 1);
+    let mut manifest: manifest::Manifest =
+        serde_json::from_value(result["manifest"].clone()).unwrap();
+    manifest.cards = manifest.cards.split_off(303);
+    let temp = tempfile::tempdir().unwrap();
+    assert_eq!(archive::pack(&manifest, temp.path()).unwrap()["cards"], 2);
+}
+#[test]
+fn rejects_same_unit_collisions_and_changed_generated_units() {
+    assert!(plan::prepare(r#"[{"name":"fair","unit":3},{"name":"fair","unit":3}]"#).is_err());
+    let input = json!({"cards":[{"name":"fair","unit":8,"chn":"展销会"}],"source":"[{\"name\":\"fair\",\"unit\":3}]","deck_name":"Units","directory":"output"});
+    assert!(plan::build(serde_json::from_value(input).unwrap())
+        .unwrap_err()
+        .to_string()
+        .contains("unit"));
+}
+#[test]
+fn round_trips_same_word_across_units_with_image_prompts_and_stable_guids() {
+    let cards = vec![
+        json!({"name":"fair","unit":3,"chn":"公平","image_prompt":"A fair game <outside> & friends.\nSunny day."}),
+        json!({"name":"fair","unit":8,"chn":"展销会","image_prompt":"A busy trade fair."}),
+    ];
+    let value = plan::manifest_from_cards(cards, "Units").unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    archive::pack(&value, temp.path()).unwrap();
+    let original_guids = guids(&temp.path().join("deck.apkg"));
+    assert_eq!(original_guids.len(), 2);
+    let output = temp.path().join("unpacked");
+    anki_cli::markdown::unpack(&temp.path().join("deck.apkg"), &output).unwrap();
+    let restored = manifest::read(&output.join("anki.manifest.yaml")).unwrap();
+    assert_eq!(restored.cards.len(), 2);
+    for (old, new) in value.cards.iter().zip(&restored.cards) {
+        assert_eq!(old.id, new.id);
+        assert_eq!(old.data["chn"], new.data["chn"]);
+        assert_eq!(old.data["image_prompt"], new.data["image_prompt"]);
+    }
+    archive::pack(&restored, &output).unwrap();
+    assert_eq!(original_guids, guids(&output.join("imported.apkg")));
 }
 #[test]
 fn escapes_user_markup_in_anki_fields() {

@@ -148,15 +148,23 @@ fn read_cards(connection: &rusqlite::Connection) -> Result<Vec<Card>> {
         };
         let data = extract_fields(&fields, kind);
         Ok(Card {
-            id: format!(
-                "{}.json",
-                crate::legacy::safe_name(data["name"].as_str().unwrap_or(""))
-            ),
+            id: imported_id(&data, kind)?,
             kind: kind.into(),
             data,
         })
     })
     .collect()
+}
+fn imported_id(data: &Value, kind: &str) -> Result<String> {
+    let name = data["name"].as_str().unwrap_or("");
+    if kind == "recite" {
+        return Ok(format!("{}.json", crate::legacy::safe_name(name)));
+    }
+    let mut identity = data.clone();
+    if identity["unit"] == "" {
+        identity["unit"] = Value::Null;
+    }
+    crate::plan::card_id(&identity, name)
 }
 fn decode(value: &str) -> String {
     value
@@ -177,6 +185,7 @@ const WORD_FIELDS: &[(usize, &str)] = &[
     (13, "memory_tips"),
     (14, "difficulty"),
     (15, "collocations"),
+    (50, "image_prompt"),
 ];
 const RECITE_FIELDS: &[(usize, &str)] = &[
     (16, "name"),
